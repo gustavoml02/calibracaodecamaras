@@ -12,12 +12,12 @@
 #include <QPixmap>
 #include <QSlider>
 #include <QVideoWidget>
-#include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QSqlError>
+//#include <QSqlDatabase>
+//#include <QSqlQuery>
+//#include <QSqlError>
 #include <QByteArray>
 #include <QBuffer>
-#include <QSqlRecord>
+//#include <QSqlRecord>
 
 
 QT_BEGIN_NAMESPACE
