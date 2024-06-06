@@ -96,6 +96,7 @@ private:
     QLabel* introtofile;
     QPlainTextEdit* filecont;
     QPushButton* uploadButton;
+    sqlite3* db;
 };
 
 class ImagesPage : public QWizardPage
@@ -109,9 +110,9 @@ public:
 private slots:
     void uploadImage(QLabel* image, QComboBox* selector, QList<QPixmap>& list);
     void displaySelectedImage(int index, QLabel* image, QList<QPixmap>& list);
-    void initializedb();
-    void closedb();
-    void uploadtodb(QImage* image, int i);
+    //void initializedb();
+    //void closedb();
+    //void uploadtodb(QImage* image, int i);
 
 private:
     QLabel* imageLabel;

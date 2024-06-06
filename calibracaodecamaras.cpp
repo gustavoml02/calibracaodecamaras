@@ -65,7 +65,7 @@ int ChoicePage::nextId() const
 CameraInfoPage::CameraInfoPage(QWidget* parent)
     : QWizardPage(parent)
 {
-    //! [8]
+    db = nullptr;
     setTitle("Informacao da camara");
     introtofile = new QLabel("Para começar, carregue o ficheiro com as informacoes da camara que serao relevantes para a calibracao:");
     filecont = new QPlainTextEdit();
@@ -168,12 +168,29 @@ int CameraInfoPage::initializedb()
 }
 
 void CameraInfoPage::uploadtodb(QString contents, QString filename, QString date){
-
+    const char* sqlInsert = "INSERT INTO camerainfo (date_of_upload, file_name, contents) VALUES (?, ?, ?);";
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db, sqlInsert, -1, &stmt, 0);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << std::endl;
+        return;
+    }
+    sqlite3_bind_text(stmt, 1, date.toStdString().c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, filename.toStdString().c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_blob(stmt, 3, contents.toStdString().c_str(), contents.size(), SQLITE_STATIC);
+    rc = sqlite3_step(stmt);
+    if (rc != SQLITE_DONE) {
+        std::cerr << "Failed to execute statement: " << sqlite3_errmsg(db) << std::endl;
+    }
+    sqlite3_finalize(stmt);
 }
 
 void CameraInfoPage::closedb()
 {
-
+    if (db) {
+        sqlite3_close(db);
+        db = nullptr;
+    }
 }
 
 ImagesPage::ImagesPage(QWidget* parent)
