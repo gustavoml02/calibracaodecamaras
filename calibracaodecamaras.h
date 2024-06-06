@@ -18,6 +18,7 @@
 #include <QByteArray>
 #include <QBuffer>
 //#include <QSqlRecord>
+#include "sqlite3.h"
 
 //OLA GUSTAVO SOU O GITHUB
 
@@ -31,6 +32,8 @@ class QRadioButton;
 class QPlainTextEdit;
 class QPushButton;
 class QVBoxLayout;
+class QFileInfo;
+class QDate;
 QT_END_NAMESPACE
 
 class ClassWizard : public QWizard
@@ -84,6 +87,9 @@ public:
     CameraInfoPage(QWidget* parent = nullptr);
 
     void uploadfile();
+    int initializedb();
+    void closedb();
+    void uploadtodb(QString contents, QString filename, QString date);
 
 private:
     QGroupBox* groupBox;
@@ -103,6 +109,9 @@ public:
 private slots:
     void uploadImage(QLabel* image, QComboBox* selector, QList<QPixmap>& list);
     void displaySelectedImage(int index, QLabel* image, QList<QPixmap>& list);
+    void initializedb();
+    void closedb();
+    void uploadtodb(QImage* image, int i);
 
 private:
     QLabel* imageLabel;

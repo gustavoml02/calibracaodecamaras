@@ -73,14 +73,13 @@ CameraInfoPage::CameraInfoPage(QWidget* parent)
     //uploadButton->setText("Carregar ficheiro");
 
     groupBox = new QGroupBox();
-    //! [9]
+ 
     //guarda o valor do file cont para ser usado entre wizard pages
     registerField("filecontent", filecont);
 
     connect(uploadButton, &QPushButton::clicked, this, &CameraInfoPage::uploadfile);
 
     QVBoxLayout* groupBoxLayout = new QVBoxLayout;
-    //! [12]
     groupBoxLayout->addWidget(filecont);
     groupBoxLayout->addWidget(uploadButton);
     groupBox->setLayout(groupBoxLayout);
@@ -97,14 +96,14 @@ CameraInfoPage::CameraInfoPage(QWidget* parent)
 void CameraInfoPage::uploadfile() {
 
     QString filePath = QFileDialog::getOpenFileName(nullptr, "Open Text File", QString(), "Text Files (*.txt)");
-
+    QString contents;
     // Check if a file was selected
     if (!filePath.isEmpty()) {
         // Read the contents of the selected text file
         QFile file(filePath);
         if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             // Read all text from the file
-            QString contents = file.readAll();
+            contents = file.readAll();
             file.close();
 
             // Set the text file contents to the text edit widget
@@ -122,6 +121,59 @@ void CameraInfoPage::uploadfile() {
 
     // Show the text edit widget
     filecont->show();
+
+    QFileInfo filename(filePath);
+    filePath= filename.fileName();
+
+    QDate date(QDate::currentDate());
+
+    initializedb();
+    uploadtodb(contents, filePath, date.toString("yyyy-MM-dd"));
+    
+    
+}
+
+int CameraInfoPage::initializedb()
+{
+    sqlite3* db;
+    char* errorMessage = 0;
+    int result;
+
+    // Open (or create) a database named "uploadsdatabase.db"
+    result = sqlite3_open("uploadsdatabase.db", &db);
+    if (result) {
+        std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
+        return 1;
+    }
+    else {
+        std::cout << "Opened database successfully" << std::endl;
+    }
+
+    // Create a table named "camerainfo" if it doesn't already exist
+    const char* sqlCreateTable = "CREATE TABLE IF NOT EXISTS camerainfo ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "date_of_upload TEXT NOT NULL,"
+        "file_name TEXT NOT NULL,"
+        "contents BLOB NOT NULL);";
+
+    result = sqlite3_exec(db, sqlCreateTable, 0, 0, &errorMessage);
+    if (result != SQLITE_OK) {
+        std::cerr << "SQL error: " << errorMessage << std::endl;
+        sqlite3_free(errorMessage);
+    }
+    else {
+        std::cout << "Table created successfully" << std::endl;
+    }
+
+}
+
+void CameraInfoPage::uploadtodb(QString contents, QString filename, QString date){
+
+}
+
+void CameraInfoPage::closedb()
+{
+
 }
 
 ImagesPage::ImagesPage(QWidget* parent)
