@@ -87,9 +87,9 @@ public:
     CameraInfoPage(QWidget* parent = nullptr);
 
     void uploadfile();
-    int initializedb();
-    void closedb();
-    void uploadtodb(QString contents, QString filename, QString date);
+    int initializedb(sqlite3* db);
+    void closedb(sqlite3* db);
+    void uploadtodb(QString contents, QString filename, QString date, sqlite3* db);
 
 private:
     QGroupBox* groupBox;

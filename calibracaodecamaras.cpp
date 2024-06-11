@@ -108,6 +108,14 @@ void CameraInfoPage::uploadfile() {
 
             // Set the text file contents to the text edit widget
             filecont->setPlainText(contents);
+            QFileInfo filename(filePath);
+            filePath = filename.fileName();
+
+            QDate date(QDate::currentDate());
+
+            initializedb(db);
+            uploadtodb(contents, filePath, date.toString("yyyy-MM-dd"), db);
+            closedb(db);
         }
         else {
             // Error handling: Failed to open the file
@@ -126,16 +134,12 @@ void CameraInfoPage::uploadfile() {
     filePath= filename.fileName();
 
     QDate date(QDate::currentDate());
-
-    initializedb();
-    uploadtodb(contents, filePath, date.toString("yyyy-MM-dd"));
-    
     
 }
 
-int CameraInfoPage::initializedb()
+int CameraInfoPage::initializedb(sqlite3* db)
 {
-    sqlite3* db;
+    qDebug() << "INITIALIZED THE DB";
     char* errorMessage = 0;
     int result;
 
@@ -143,49 +147,48 @@ int CameraInfoPage::initializedb()
     result = sqlite3_open("uploadsdatabase.db", &db);
     if (result) {
         std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
+        qDebug() << "Can't open database: " << sqlite3_errmsg(db);
         return 1;
     }
     else {
         std::cout << "Opened database successfully" << std::endl;
+        qDebug() << "Opened database successfully";
     }
 
     // Create a table named "camerainfo" if it doesn't already exist
-    const char* sqlCreateTable = "CREATE TABLE IF NOT EXISTS camerainfo ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "date_of_upload TEXT NOT NULL,"
-        "file_name TEXT NOT NULL,"
-        "contents BLOB NOT NULL);";
+    const char* sqlCreateTable = "CREATE TABLE IF NOT EXISTS camerainfo (id INTEGER PRIMARY KEY AUTOINCREMENT, date_of_upload TEXT NOT NULL, file_name TEXT NOT NULL, contents BLOB NOT NULL);";
 
     result = sqlite3_exec(db, sqlCreateTable, 0, 0, &errorMessage);
     if (result != SQLITE_OK) {
         std::cerr << "SQL error: " << errorMessage << std::endl;
+        qDebug() << "SQL error: " << errorMessage;
         sqlite3_free(errorMessage);
     }
     else {
         std::cout << "Table created successfully" << std::endl;
+        qDebug() << "Table created successfully";
     }
 
 }
 
-void CameraInfoPage::uploadtodb(QString contents, QString filename, QString date){
-    const char* sqlInsert = "INSERT INTO camerainfo (date_of_upload, file_name, contents) VALUES (?, ?, ?);";
-    sqlite3_stmt* stmt;
-    int rc = sqlite3_prepare_v2(db, sqlInsert, -1, &stmt, 0);
+void CameraInfoPage::uploadtodb(QString contents, QString filename, QString date, sqlite3* db){
+    // Construct the SQL query string with values directly
+    QString sqlInsert = "INSERT INTO camerainfo (date_of_upload, file_name, contents) VALUES ('" +
+        date + "', '" + filename + "', '" + contents + "');";
+
+    // Convert the QString to a UTF-8 encoded QByteArray
+    QByteArray byteArray = sqlInsert.toUtf8();
+
+    // Execute the SQL query using sqlite3_exec
+    int rc = sqlite3_exec(db, byteArray.constData(), nullptr, nullptr, nullptr);
+
     if (rc != SQLITE_OK) {
-        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db) << std::endl;
-        return;
-    }
-    sqlite3_bind_text(stmt, 1, date.toStdString().c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, filename.toStdString().c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_blob(stmt, 3, contents.toStdString().c_str(), contents.size(), SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
         std::cerr << "Failed to execute statement: " << sqlite3_errmsg(db) << std::endl;
+        qDebug() << "Failed to execute statement: " << sqlite3_errmsg(db);
     }
-    sqlite3_finalize(stmt);
 }
 
-void CameraInfoPage::closedb()
+void CameraInfoPage::closedb(sqlite3* db)
 {
     if (db) {
         sqlite3_close(db);
