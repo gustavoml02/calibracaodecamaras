@@ -12,15 +12,7 @@
 #include <QPixmap>
 #include <QSlider>
 #include <QVideoWidget>
-//#include <QSqlDatabase>
-//#include <QSqlQuery>
-//#include <QSqlError>
-#include <QByteArray>
-#include <QBuffer>
-//#include <QSqlRecord>
 #include "sqlite3.h"
-
-//OLA GUSTAVO SOU O GITHUB
 
 QT_BEGIN_NAMESPACE
 class QCheckBox;
@@ -87,9 +79,9 @@ public:
     CameraInfoPage(QWidget* parent = nullptr);
 
     void uploadfile();
-    int initializedb(sqlite3* db);
-    void closedb(sqlite3* db);
-    void uploadtodb(QString contents, QString filename, QString date, sqlite3* db);
+    int initializedb();
+    void closedb();
+    void uploadtodb(QString contents, QString filename, QString date);
 
 private:
     QGroupBox* groupBox;
@@ -111,23 +103,18 @@ private slots:
     void uploadImage(QLabel* image, QComboBox* selector, QList<QPixmap>& list);
     void displaySelectedImage(int index, QLabel* image, QList<QPixmap>& list);
     //void initializedb();
-    //void closedb();
+   // void closedb();
     //void uploadtodb(QImage* image, int i);
 
 private:
     QLabel* imageLabel;
     QLabel* referenceLabel;
-    //QLabel* resultLabel;
-
     QPushButton* uploadButton;
     QPushButton* refuploadButton;
-
     QComboBox* imageSelector;
     QComboBox* refimageSelector;
-
     QList<QPixmap> images;
     QList<QPixmap> refs;
-    //QList<QPixmap> results;
 };
 
 class CameraPage : public QWizardPage
@@ -153,7 +140,6 @@ public:
 private slots:
     void getCameras();
     void selectcamera(int index);
-
     void on_zoom_valueChanged();
     void on_paracamara_clicked();
 
