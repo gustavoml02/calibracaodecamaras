@@ -12,6 +12,8 @@
 #include <QPixmap>
 #include <QSlider>
 #include <QVideoWidget>
+#include <QByteArray>
+#include <QBuffer>
 #include "sqlite3.h"
 
 QT_BEGIN_NAMESPACE
@@ -84,7 +86,6 @@ public:
     void uploadtodb(QString contents, QString filename, QString date);
 
 private:
-    QGroupBox* groupBox;
     QLabel* introtofile;
     QPlainTextEdit* filecont;
     QPushButton* uploadButton;
@@ -102,9 +103,10 @@ public:
 private slots:
     void uploadImage(QLabel* image, QComboBox* selector, QList<QPixmap>& list);
     void displaySelectedImage(int index, QLabel* image, QList<QPixmap>& list);
-    //void initializedb();
-   // void closedb();
-    //void uploadtodb(QImage* image, int i);
+    int initializedb();
+    QByteArray readImageFile(const QString& filePath);
+    void closedb();
+    void uploadtodb(QByteArray imageData, QString imageName/*, QString date*/);
 
 private:
     QLabel* imageLabel;
@@ -115,6 +117,7 @@ private:
     QComboBox* refimageSelector;
     QList<QPixmap> images;
     QList<QPixmap> refs;
+    sqlite3* db;
 };
 
 class CameraPage : public QWizardPage
@@ -146,6 +149,7 @@ private slots:
 private:
     QLabel* label;
 };
+
 
 class ConclusionPage : public QWizardPage
 {
