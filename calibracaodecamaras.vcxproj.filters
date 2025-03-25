@@ -32,12 +32,12 @@
     <QtMoc Include="calibracaodecamaras.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <ClCompile Include="calibracaodecamaras.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="calibracaodecamaras.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

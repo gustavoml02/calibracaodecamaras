@@ -15,6 +15,11 @@
 #include <QByteArray>
 #include <QBuffer>
 #include "sqlite3.h"
+#include <opencv2/opencv.hpp>
+
+
+using namespace cv;
+
 
 QT_BEGIN_NAMESPACE
 class QCheckBox;
@@ -29,6 +34,9 @@ class QVBoxLayout;
 class QFileInfo;
 class QDate;
 QT_END_NAMESPACE
+
+
+
 
 class ClassWizard : public QWizard
 {
@@ -103,16 +111,19 @@ public:
 private slots:
     void uploadImage(QLabel* image, QComboBox* selector, QList<QPixmap>& list);
     void displaySelectedImage(int index, QLabel* image, QList<QPixmap>& list);
+    void calibrateImage();
     int initializedb();
     QByteArray readImageFile(const QString& filePath);
     void closedb();
     void uploadtodb(QByteArray imageData, QString imageName/*, QString date*/);
+    void uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>& list);
+    //void calibratedclicked()
 
 private:
     QLabel* imageLabel;
     QLabel* referenceLabel;
     QPushButton* uploadButton;
-    QPushButton* refuploadButton;
+    QPushButton* calibrationButton;
     QComboBox* imageSelector;
     QComboBox* refimageSelector;
     QList<QPixmap> images;
@@ -135,16 +146,21 @@ public:
     QPushButton* paracamara;
     QPushButton* gridbutton;
     QComboBox* combocamaras;
+    
     QVideoWidget* videoWidget;
     QLabel* zoompx;
     QLabel* zoomlab;
     QGraphicsView* framedisplay;
+    QPushButton* livecalbutton;
+    QPushButton* undistbutton;
 
 private slots:
     void getCameras();
     void selectcamera(int index);
     void on_zoom_valueChanged();
     void on_paracamara_clicked();
+    float livecalibration();
+    void undistcamera();
 
 private:
     QLabel* label;
@@ -164,5 +180,8 @@ protected:
 private:
     QLabel* label;
 };
+
+
+
 
 #endif

@@ -2,7 +2,6 @@
 #include <QTranslator>
 #include <QLocale>
 #include <QLibraryInfo>
-
 #include "calibracaodecamaras.h"
 
 int main(int argc, char* argv[])
@@ -26,3 +25,4 @@ int main(int argc, char* argv[])
     wizard.show();
     return app.exec();
 }
+

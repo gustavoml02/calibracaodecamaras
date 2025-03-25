@@ -2,6 +2,28 @@
 #include "calibracaodecamaras.h"
 #include <iostream>
 #include <locale>
+#include <opencv2/opencv.hpp>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include <vector>
+#include <filesystem>
+#include <fstream>
+
+using namespace cv;
+using namespace std;
+namespace fs = std::filesystem;
+
+const int boardWidth = 9;
+const int boardHeight = 6;
+const Size boardSize(boardWidth, boardHeight);
+float squareSize = 1.0; // Chessboard square size
+
+vector<vector<Point3f>> objectPoints;
+vector<vector<Point2f>> imagePoints;
+vector<Point3f> objp;
+Mat cameraMatrix, distCoeffs;
+
 
 ClassWizard::ClassWizard(QWidget* parent)
     : QWizard(parent)
@@ -28,7 +50,7 @@ IntroPage::IntroPage(QWidget* parent)
 
     setTitle(u8"Wizard para calibração de cameras");
 
-    label = new QLabel("Este Wizard tem o intuito de ajudar o utilizador a calibrar uma camera");
+    label = new QLabel(" Este Wizard tem o intuito de ajudar o utilizador a calibrar uma camera \n\n Com este programa o utilizador tem duas opcoes para efetuar a calibracao (Por Imagens ou Camara Livre), todos os dados sao guardados numa base de dados na pasta fonte do programa.");
     label->setWordWrap(true);
 
     QVBoxLayout* layout = new QVBoxLayout;
@@ -85,7 +107,7 @@ CameraInfoPage::CameraInfoPage(QWidget* parent)
 
 void CameraInfoPage::uploadfile()
 {
-    QString filePath = QFileDialog::getOpenFileName(nullptr, "Open Text File", QString(), "Text Files (*.txt)");
+    /*QString filePath = QFileDialog::getOpenFileName(nullptr, "Open Text File", QString(), "Text Files (*.txt)");
     QString contents;
     if (!filePath.isEmpty()) {
         QFile file(filePath);
@@ -107,7 +129,7 @@ void CameraInfoPage::uploadfile()
     else {
         filecont->setPlainText("File selection canceled.");
     }
-    filecont->show();
+    filecont->show();*/
     
 }
 
@@ -177,14 +199,16 @@ ImagesPage::ImagesPage(QWidget* parent)
     uploadButton = new QPushButton("Upload Images");
     imageSelector = new QComboBox;
 
-    refuploadButton = new QPushButton("Upload References");
     refimageSelector = new QComboBox;
+
+    calibrationButton = new QPushButton("Calibrate Images");
 
     connect(uploadButton, &QPushButton::clicked, std::bind(&ImagesPage::uploadImage, this, imageLabel, imageSelector, std::ref(images)));
     connect(imageSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), std::bind(&ImagesPage::displaySelectedImage, this, std::placeholders::_1, imageLabel, std::ref(images)));
 
-    connect(refuploadButton, &QPushButton::clicked, std::bind(&ImagesPage::uploadImage, this, referenceLabel, refimageSelector, std::ref(refs)));
     connect(refimageSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), std::bind(&ImagesPage::displaySelectedImage, this, std::placeholders::_1, referenceLabel, std::ref(refs)));
+
+    connect(calibrationButton, &QPushButton::clicked, std::bind(&ImagesPage::calibrateImage, this));
 
     QGridLayout* layout = new QGridLayout;
     layout->addWidget(imageLabel, 0, 0);
@@ -192,8 +216,9 @@ ImagesPage::ImagesPage(QWidget* parent)
     layout->addWidget(imageSelector, 2, 0);
 
     layout->addWidget(referenceLabel, 0, 1);
-    layout->addWidget(refuploadButton, 1, 1);
-    layout->addWidget(refimageSelector, 2, 1);
+    layout->addWidget(refimageSelector, 1, 1);
+
+    layout->addWidget(calibrationButton, 3, 0);
     setLayout(layout);
 }
 int ImagesPage::nextId() const
@@ -205,21 +230,67 @@ void ImagesPage::uploadImage(QLabel* image, QComboBox* selector, QList<QPixmap>&
 {
     QStringList filePaths = QFileDialog::getOpenFileNames(nullptr, "Open Image Files", QString(), "Image Files (*.png *.jpg *.bmp)");
 
+    fs::remove_all("images/");
+    if (!fs::exists("images/")) {
+        fs::create_directory("images/");
+    }
+
     if (!filePaths.isEmpty()) {
-        foreach(const QString & filePath, filePaths) {
-            QPixmap imaget(filePath);
+        foreach(const QString & filePat, filePaths) {
+
+            QPixmap imaget(filePat);
             if (!imaget.isNull()) {
                 list.append(imaget);
-                selector->addItem(filePath);
+                selector->addItem(filePat);
 
-                QByteArray imageData = readImageFile(filePath);
-                QFileInfo fileInfo(filePath);
+                QByteArray imageData = readImageFile(filePat);
+                QFileInfo fileInfo(filePat);
                 QString imageName = fileInfo.fileName();
                 QDate date(QDate::currentDate());
+
+                fs::copy(filePat.toStdString(), "images/" + fileInfo.fileName().toStdString(), fs::copy_options::overwrite_existing);
 
                 initializedb();
                 uploadtodb(imageData, imageName/*, date.toString("yyyy-MM-dd")*/);
                 closedb();
+            }
+            else {
+                image->setText("Error: Unable to load one or more images.");
+            }
+        }
+        if (!list.isEmpty()) {
+            displaySelectedImage(0, image, list);
+        }
+    }
+    else {
+        image->setText("File selection canceled.");
+    }
+}
+
+void ImagesPage::uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>& list)
+{
+    QDir directory("undistorted_images/");
+    QStringList filePaths = directory.entryList(QDir::Files);
+
+    if (!filePaths.isEmpty()) {
+        foreach(const QString & filePat, filePaths) {
+            
+            QString fullPath = directory.absoluteFilePath(filePat);
+            QPixmap imaget(fullPath);
+            if (!imaget.isNull()) {
+                list.append(imaget);
+                selector->addItem(filePat);
+
+                QByteArray imageData = readImageFile(fullPath);
+                QFileInfo fileInfo(fullPath);
+                QString imageName = fileInfo.fileName();
+                QDate date(QDate::currentDate());
+
+                //fs::copy(filePat.toStdString(), "images/" + fileInfo.fileName().toStdString(), fs::copy_options::overwrite_existing);
+
+                //initializedb();
+                //uploadtodb(imageData, imageName/*, date.toString("yyyy-MM-dd")*/);
+                //closedb();
             }
             else {
                 image->setText("Error: Unable to load one or more images.");
@@ -272,7 +343,8 @@ int ImagesPage::initializedb(){
     return result;
 }
 
-void ImagesPage::uploadtodb(QByteArray imageData, QString imageName/*, QString date*/) {
+void ImagesPage::uploadtodb(QByteArray imageData, QString imageName/*, QString date*/)
+ {
 
     //QString sqlInsert = "INSERT INTO imagesforcal (date_of_upload, file_name, contents) VALUES ('" +
     //    date + "', '" + imageName + "', '" + imageData + "');";
@@ -309,6 +381,116 @@ void ImagesPage::uploadtodb(QByteArray imageData, QString imageName/*, QString d
     sqlite3_finalize(stmt);
 }
 
+void ImagesPage::calibrateImage()
+{
+cv::setBreakOnError(true);
+
+    for (int i = 0; i < boardHeight; i++) {
+        for (int j = 0; j < boardWidth; j++) {
+            objp.push_back(Point3f(j * squareSize, i * squareSize, 0));
+        }
+    }
+
+    vector<string> imageFiles;
+    for (const auto& entry : fs::directory_iterator("images")) {
+        if (entry.path().extension() == ".jpg" || entry.path().extension() == ".png") {
+            imageFiles.push_back(entry.path().string());
+            cout << entry.path().string()<< endl;
+        }
+    }
+    cout << imageFiles.size()<< endl;
+
+    if (imageFiles.empty()) {
+        cerr << "Error: No images found in 'images' directory." << endl;
+    }
+
+
+    Mat frame, gray;
+    for (const auto& filenam : imageFiles) {
+        cout << filenam;
+        frame = cv::imread(filenam);
+        if (frame.empty()) {
+            cerr << "Warning: Could not read " << filenam << endl;
+            continue;
+        }
+
+        cvtColor(frame, gray, COLOR_BGR2GRAY);
+        vector<Point2f> corners;
+        bool found = findChessboardCorners(gray, boardSize, corners,
+            CALIB_CB_ADAPTIVE_THRESH | CALIB_CB_FAST_CHECK | CALIB_CB_NORMALIZE_IMAGE);
+
+        if (found) {
+            cornerSubPix(gray, corners, Size(11, 11), Size(-1, -1),
+                TermCriteria(TermCriteria::EPS + TermCriteria::COUNT, 30, 0.001));
+
+            imagePoints.push_back(corners);
+            objectPoints.push_back(objp);
+
+            drawChessboardCorners(frame, boardSize, corners, found);
+
+            //string outputFilename = "chessboard_images/drawn_" + fs::path(filenam).filename().string();
+            //imwrite(outputFilename, frame);
+
+            
+            //ImagesPage::uploadUndist(imageLabel, imageSelector, std::ref(images), "chessboard_images/");
+            //Para visualizar fora do UI
+            //Mat resizedFrame;
+            //cv::resize(frame, resizedFrame, Size(frame.cols / 4, frame.rows / 4)); // Resize to half
+            //imshow("Chessboard Detection", resizedFrame);
+        }
+    }
+    //destroyAllWindows();
+    
+    if (imagePoints.empty()) {
+        cerr << "Error: No valid images for calibration." << endl;
+    }
+
+    Mat cameraMatrix, distCoeffs;
+    vector<Mat> rvecs, tvecs;
+    calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
+
+    ofstream file("calibration_results.txt");
+    if (file.is_open()) {
+        file << "Camera Matrix:\n" << cameraMatrix << "\n";
+        file << "Distortion Coefficients:\n" << distCoeffs << "\n";
+        file.close();
+        //cout << "Calibration results saved to 'calibration_results.txt'." << endl;
+    }
+    else {
+        cerr << "Error: Unable to save calibration data." << endl;
+    }
+
+    // Create directory for undistorted images
+    if (!fs::exists("undistorted_images")) {
+        fs::create_directory("undistorted_images");
+    }
+
+    // Save and show undist images
+    for (const auto& filename : imageFiles) {
+        Mat original = imread(filename);
+        if (original.empty()) {
+            cerr << "Warning: Could not read " << filename << endl;
+            continue;
+        }
+
+        Mat undistorted;
+        undistort(original, undistorted, cameraMatrix, distCoeffs);
+
+        string outputFilename = "undistorted_images/undistorted_" + fs::path(filename).filename().string();
+        imwrite(outputFilename, undistorted);
+
+        //Upload para references
+        ImagesPage::uploadUndist(referenceLabel, refimageSelector, std::ref(refs));
+       //Para visualizar fora do UI
+       // cv::resize(undistorted, resizedUndistorted, Size(undistorted.cols / 4, undistorted.rows / 4));
+       // imshow("Undistorted Image", resizedUndistorted);
+    }
+    //destroyAllWindows();
+    // Chessboard dimensions (number of inner corners per chessboard row and column)
+    
+
+}
+
 void ImagesPage::closedb(){
     if (db) {
         sqlite3_close(db);
@@ -330,7 +512,8 @@ CameraPage::CameraPage(QWidget* parent)
     framedisplay = new QGraphicsView;
     framedisplay->setFixedHeight(300);
     framedisplay->setFixedWidth(550);
-    videoWidget = new QVideoWidget();
+    
+    videoWidget = new QVideoWidget;
     videoWidget->setFixedHeight(280);
     videoWidget->setFixedWidth(500);
     combocamaras = new QComboBox;
@@ -342,10 +525,16 @@ CameraPage::CameraPage(QWidget* parent)
     currentcam = new QCamera();
     qvs = new QVideoSink();
     scene = new QGraphicsScene();
+    livecalbutton = new QPushButton();
+    livecalbutton->setText("Calibracao com OpenCV Live");
+    undistbutton = new QPushButton();
+    undistbutton->setText("Abrir camera com Distorcao ativada");
 
     connect(combocamaras, &QComboBox::currentIndexChanged, this, &CameraPage::selectcamera);
     connect(paracamara, &QPushButton::clicked, this, &CameraPage::on_paracamara_clicked);
     connect(zoom, &QSlider::valueChanged, this, &CameraPage::on_zoom_valueChanged);
+    connect(livecalbutton, &QPushButton::clicked, this, &CameraPage::livecalibration);
+    connect(undistbutton, &QPushButton::clicked, this, &CameraPage::undistcamera);
     getCameras();
     QGridLayout* layout = new QGridLayout;
     layout->addWidget(videoWidget, 0, 0);
@@ -354,6 +543,8 @@ CameraPage::CameraPage(QWidget* parent)
     layout->addWidget(framedisplay, 0, 1);
     layout->addWidget(zoom, 1, 1);
     layout->addWidget(zoompx, 2, 1);
+    layout->addWidget(livecalbutton, 3, 0);
+    layout->addWidget(undistbutton, 3, 1);
     setLayout(layout);
 }
 void CameraPage::getCameras()
@@ -421,6 +612,107 @@ void CameraPage::on_paracamara_clicked()
     framedisplay->setScene(scene);
     framedisplay->show();
 }
+float CameraPage::livecalibration() {
+
+    VideoCapture cap(0);
+    if (!cap.isOpened()) {
+        cerr << "Error: Unable to open the camera." << endl;
+    }
+
+    vector<Point3f> objp;
+    for (int i = 0; i < boardHeight; i++) {
+        for (int j = 0; j < boardWidth; j++) {
+            objp.push_back(Point3f(j * squareSize, i * squareSize, 0));
+        }
+    }
+
+    Mat frame, gray;
+    int numFrames = 0;
+    while (numFrames < 15) { // Capture 15 valid images
+        cap >> frame;
+        if (frame.empty()) {
+            cerr << "Error: Frame capture failed." << endl;
+            break;
+        }
+
+        cvtColor(frame, gray, COLOR_BGR2GRAY);
+        vector<Point2f> corners;
+        bool found = findChessboardCorners(gray, boardSize, corners,
+            CALIB_CB_ADAPTIVE_THRESH | CALIB_CB_FAST_CHECK | CALIB_CB_NORMALIZE_IMAGE);
+
+        if (found) {
+            cornerSubPix(gray, corners, Size(11, 11), Size(-1, -1),
+                TermCriteria(TermCriteria::EPS + TermCriteria::COUNT, 30, 0.001));
+
+            drawChessboardCorners(frame, boardSize, corners, found);
+            imagePoints.push_back(corners);
+            objectPoints.push_back(objp);
+
+            cout << "Captured frame " << numFrames + 1 << endl;
+            numFrames++;
+        }
+
+        imshow("Camera Calibration", frame);
+        char key = (char)waitKey(1000);
+        if (key == 27) { // Press 'ESC' to exit
+            break;
+        }
+    }
+
+    cap.release();
+    cv::waitKey(1);
+    destroyAllWindows();
+
+    // Camera calibration
+    vector<Mat> rvecs, tvecs;
+    calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
+
+    cout << "Camera Matrix: \n" << cameraMatrix << endl;
+    cout << "Distortion Coefficients: \n" << distCoeffs << endl;
+
+    // Save calibration data
+    ofstream file("calibration_results.txt");
+    if (file.is_open()) {
+        file << "Camera Matrix:\n" << cameraMatrix << "\n";
+        file << "Distortion Coefficients:\n" << distCoeffs << "\n";
+        file.close();
+    }
+  
+}
+void CameraPage::undistcamera()
+{
+    VideoCapture cap(0);
+    if (!cap.isOpened()) {
+        cerr << "Error: Unable to open the camera for distortion display." << endl;
+    }
+
+    while (true) {
+        Mat frame;
+        cap >> frame;
+        if (frame.empty()) {
+            cerr << "Error: Frame capture failed." << endl;
+            break;
+        }
+
+        // Apply distortion effect
+        Mat distortedFrame;
+        Mat map1, map2;
+        initUndistortRectifyMap(cameraMatrix, distCoeffs, Mat(), cameraMatrix, frame.size(), CV_32FC1, map1, map2);
+        remap(frame, distortedFrame, map1, map2, INTER_LINEAR, BORDER_CONSTANT);
+
+        imshow("Distorted Camera View", distortedFrame);
+
+        char key = (char)waitKey(30);
+        if (key == 27) { // Press 'ESC' to exit
+            break;
+        }
+    }
+
+    cap.release();
+    cv::waitKey(1);
+    destroyAllWindows();
+
+}
 
 
 ConclusionPage::ConclusionPage(QWidget* parent)
@@ -444,3 +736,4 @@ void ConclusionPage::initializePage()
     label->setText(tr("Click %1 to generate the class skeleton.")
         .arg(finishText));
 }
+
