@@ -24,7 +24,6 @@ vector<vector<Point2f>> imagePoints;
 vector<Point3f> objp;
 Mat cameraMatrix, distCoeffs;
 
-
 ClassWizard::ClassWizard(QWidget* parent)
     : QWizard(parent)
 {
@@ -107,7 +106,7 @@ CameraInfoPage::CameraInfoPage(QWidget* parent)
 
 void CameraInfoPage::uploadfile()
 {
-    /*QString filePath = QFileDialog::getOpenFileName(nullptr, "Open Text File", QString(), "Text Files (*.txt)");
+    QString filePath = QFileDialog::getOpenFileName(nullptr, "Open Text File", QString(), "Text Files (*.txt)");
     QString contents;
     if (!filePath.isEmpty()) {
         QFile file(filePath);
@@ -129,7 +128,7 @@ void CameraInfoPage::uploadfile()
     else {
         filecont->setPlainText("File selection canceled.");
     }
-    filecont->show();*/
+    filecont->show();
     
 }
 
@@ -203,6 +202,10 @@ ImagesPage::ImagesPage(QWidget* parent)
 
     calibrationButton = new QPushButton("Calibrate Images");
 
+	info = new QPlainTextEdit;
+    info->setReadOnly(1);
+    
+
     connect(uploadButton, &QPushButton::clicked, std::bind(&ImagesPage::uploadImage, this, imageLabel, imageSelector, std::ref(images)));
     connect(imageSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), std::bind(&ImagesPage::displaySelectedImage, this, std::placeholders::_1, imageLabel, std::ref(images)));
 
@@ -219,8 +222,11 @@ ImagesPage::ImagesPage(QWidget* parent)
     layout->addWidget(refimageSelector, 1, 1);
 
     layout->addWidget(calibrationButton, 3, 0);
+
+	layout->addWidget(info, 2, 1, 2, 1);
     setLayout(layout);
 }
+
 int ImagesPage::nextId() const
 {
     return ClassWizard::ConclusionPageId;
@@ -267,9 +273,9 @@ void ImagesPage::uploadImage(QLabel* image, QComboBox* selector, QList<QPixmap>&
     }
 }
 
-void ImagesPage::uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>& list)
+void ImagesPage::uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>& list, QString dir)
 {
-    QDir directory("undistorted_images/");
+    QDir directory(dir);
     QStringList filePaths = directory.entryList(QDir::Files);
 
     if (!filePaths.isEmpty()) {
@@ -404,6 +410,10 @@ cv::setBreakOnError(true);
         cerr << "Error: No images found in 'images' directory." << endl;
     }
 
+    fs::remove_all("chessboard_images/");
+    if (!fs::exists("chessboard_images/")) {
+        fs::create_directory("chessboard_images/");
+    }
 
     Mat frame, gray;
     for (const auto& filenam : imageFiles) {
@@ -428,11 +438,11 @@ cv::setBreakOnError(true);
 
             drawChessboardCorners(frame, boardSize, corners, found);
 
-            //string outputFilename = "chessboard_images/drawn_" + fs::path(filenam).filename().string();
-            //imwrite(outputFilename, frame);
+            string outputFilename = "chessboard_images/drawn_" + fs::path(filenam).filename().string();
+            imwrite(outputFilename, frame);
 
             
-            //ImagesPage::uploadUndist(imageLabel, imageSelector, std::ref(images), "chessboard_images/");
+            ImagesPage::uploadUndist(imageLabel, imageSelector, std::ref(images), "chessboard_images/");
             //Para visualizar fora do UI
             //Mat resizedFrame;
             //cv::resize(frame, resizedFrame, Size(frame.cols / 4, frame.rows / 4)); // Resize to half
@@ -460,6 +470,18 @@ cv::setBreakOnError(true);
         cerr << "Error: Unable to save calibration data." << endl;
     }
 
+    string coeffs;
+    QFile camcoeffs("calibration_results.txt");
+    if (camcoeffs.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        coeffs = camcoeffs.readAll();
+		camcoeffs.close();
+        QDate date(QDate::currentDate());
+        info->setPlainText(QString::fromStdString(coeffs));
+    }
+    else {
+        info->setPlainText("Error: Unable to open the file.");
+    }
+
     // Create directory for undistorted images
     if (!fs::exists("undistorted_images")) {
         fs::create_directory("undistorted_images");
@@ -480,11 +502,13 @@ cv::setBreakOnError(true);
         imwrite(outputFilename, undistorted);
 
         //Upload para references
-        ImagesPage::uploadUndist(referenceLabel, refimageSelector, std::ref(refs));
+        ImagesPage::uploadUndist(referenceLabel, refimageSelector, std::ref(refs), "undistorted_images/");
        //Para visualizar fora do UI
        // cv::resize(undistorted, resizedUndistorted, Size(undistorted.cols / 4, undistorted.rows / 4));
        // imshow("Undistorted Image", resizedUndistorted);
     }
+
+
     //destroyAllWindows();
     // Chessboard dimensions (number of inner corners per chessboard row and column)
     

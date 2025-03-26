@@ -116,7 +116,7 @@ private slots:
     QByteArray readImageFile(const QString& filePath);
     void closedb();
     void uploadtodb(QByteArray imageData, QString imageName/*, QString date*/);
-    void uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>& list);
+    void uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>& list, QString dir);
     //void calibratedclicked()
 
 private:
@@ -128,6 +128,7 @@ private:
     QComboBox* refimageSelector;
     QList<QPixmap> images;
     QList<QPixmap> refs;
+    QPlainTextEdit* info;
     sqlite3* db;
 };
 
