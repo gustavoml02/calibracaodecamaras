@@ -9,6 +9,7 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include <locale.h>
 
 using namespace cv;
 using namespace std;
@@ -18,15 +19,66 @@ const int boardWidth = 9;
 const int boardHeight = 6;
 const Size boardSize(boardWidth, boardHeight);
 float squareSize = 1.0; // Chessboard square size
+int flaglivecam = 0;
+
 
 vector<vector<Point3f>> objectPoints;
 vector<vector<Point2f>> imagePoints;
 vector<Point3f> objp;
 Mat cameraMatrix, distCoeffs;
 
+bool readCalibrationFile(const std::string& filename, Mat& cameraMatrix2, Mat& distCoeffs2) {
+    ifstream file(filename);
+    if (!file.is_open()) {
+        cerr << "Failed to open " << filename << endl;
+        return false;
+    }
+
+    string line;
+    bool readingCameraMatrix = false, readingDistCoeffs = false;
+    vector<double> cameraData, distData;
+
+    while (getline(file, line)) {
+        if (line.find("Camera Matrix:") != string::npos) {
+            readingCameraMatrix = true;
+            readingDistCoeffs = false;
+            continue;
+        }
+        else if (line.find("Distortion Coefficients:") != string::npos) {
+            readingDistCoeffs = true;
+            readingCameraMatrix = false;
+            continue;
+        }
+
+        if (readingCameraMatrix || readingDistCoeffs) {
+            istringstream iss(line);
+            double val;
+            while (iss >> val) {
+                if (readingCameraMatrix)
+                    cameraData.push_back(val);
+                else if (readingDistCoeffs)
+                    distData.push_back(val);
+            }
+        }
+    }
+
+    if (cameraData.size() != 9) {
+        cerr << "Invalid camera matrix size.\n";
+        return false;
+    }
+
+    cameraMatrix2 = Mat(3, 3, CV_64F, cameraData.data()).clone();
+    distCoeffs2 = Mat(distData).clone().reshape(1, 1); // reshape to 1 row
+
+	cout << "Camera Matrix:\n" << cameraMatrix2 << endl;
+	cout << "Distortion Coefficients:\n" << distCoeffs2 << endl;
+    return true;
+}
+
 ClassWizard::ClassWizard(QWidget* parent)
     : QWizard(parent)
 {
+    
     addPage(new IntroPage);
     addPage(new CameraInfoPage);
     addPage(new ChoicePage);
@@ -34,7 +86,7 @@ ClassWizard::ClassWizard(QWidget* parent)
     addPage(new CameraPage);
     addPage(new ConclusionPage);
 
-    setWindowTitle("Calibração de camaras");
+    setWindowTitle("Camera Calibration");
 }
 
 void ClassWizard::accept()
@@ -45,11 +97,12 @@ void ClassWizard::accept()
 IntroPage::IntroPage(QWidget* parent)
     : QWizardPage(parent)
 {
+    
     std::locale::global(std::locale("pt_PT.UTF-8"));
 
-    setTitle(u8"Wizard para calibração de cameras");
+    setTitle(u8"Wizard for camera calibration");
 
-    label = new QLabel(" Este Wizard tem o intuito de ajudar o utilizador a calibrar uma camera \n\n Com este programa o utilizador tem duas opcoes para efetuar a calibracao (Por Imagens ou Camara Livre), todos os dados sao guardados numa base de dados na pasta fonte do programa.");
+    label = new QLabel(" This wizard is intended to help the user calibrate a camera. With this program, the user has two options to perform the calibration(Using Images or Free Camera).All data is saved in a database in the program's source folder.");
     label->setWordWrap(true);
 
     QVBoxLayout* layout = new QVBoxLayout;
@@ -60,11 +113,11 @@ IntroPage::IntroPage(QWidget* parent)
 ChoicePage::ChoicePage(QWidget* parent)
     : QWizardPage(parent)
 {
-    setTitle("Wizard para calibração de cameras");
+    setTitle("Wizard for Camera Calibration");
 
-    choicelabel = new QLabel("Escolha entre calibração de camara livre ou por imagens:");
-    imagesPageRadioButton = new QRadioButton(tr("Por Imagens"));
-    cameraPageRadioButton = new QRadioButton(tr("Câmera Livre"));
+    choicelabel = new QLabel("Choose between live calibration and image calibration:");
+    imagesPageRadioButton = new QRadioButton(tr("Image Calibration"));
+    cameraPageRadioButton = new QRadioButton(tr("Live Calibration"));
 
     QVBoxLayout* choiceLayout = new QVBoxLayout;
     choiceLayout->addWidget(choicelabel);
@@ -87,10 +140,12 @@ int ChoicePage::nextId() const
 CameraInfoPage::CameraInfoPage(QWidget* parent)
     : QWizardPage(parent), db(nullptr)
 {
-    setTitle("Informacao da camara");
-    introtofile = new QLabel("Para começar, carregue o ficheiro com as informacoes da camara que serao relevantes para a calibracao:");
+//	readCalibrationFile("calibration_results.txt", cameraMatrix, distCoeffs);
+
+    setTitle("Camera Information");
+    introtofile = new QLabel("To begin, load the file with the camera information that will be relevant for the calibration:");
     filecont = new QPlainTextEdit();
-    uploadButton = new QPushButton("Carregar ficheiro");
+    uploadButton = new QPushButton("Upload file");
 
     registerField("filecontent", filecont);
 
@@ -183,7 +238,7 @@ void CameraInfoPage::closedb()
 ImagesPage::ImagesPage(QWidget* parent)
     : QWizardPage(parent), db(nullptr)
 {
-    setTitle("Carregar imagens para calibração");
+    setTitle("Upload imagens for calibration");
 
     imageLabel = new QLabel;
     imageLabel->setAlignment(Qt::AlignCenter);
@@ -194,6 +249,11 @@ ImagesPage::ImagesPage(QWidget* parent)
     referenceLabel->setAlignment(Qt::AlignCenter);
     referenceLabel->setFrameStyle(QFrame::Box | QFrame::Sunken);
     referenceLabel->setFixedSize(600, 400);
+
+	progressBar = new QProgressBar;
+    int pb;
+    progressBar->setRange(0, 100);   // Set min/max
+    progressBar->setValue(0);
 
     uploadButton = new QPushButton("Upload Images");
     imageSelector = new QComboBox;
@@ -220,8 +280,10 @@ ImagesPage::ImagesPage(QWidget* parent)
 
     layout->addWidget(referenceLabel, 0, 1);
     layout->addWidget(refimageSelector, 1, 1);
+	
 
     layout->addWidget(calibrationButton, 3, 0);
+    layout->addWidget(progressBar, 4, 0);
 
 	layout->addWidget(info, 2, 1, 2, 1);
     setLayout(layout);
@@ -278,6 +340,8 @@ void ImagesPage::uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>
     QDir directory(dir);
     QStringList filePaths = directory.entryList(QDir::Files);
 
+	cout << "Files in directory: " << filePaths.size() << endl;
+
     if (!filePaths.isEmpty()) {
         foreach(const QString & filePat, filePaths) {
             
@@ -297,6 +361,7 @@ void ImagesPage::uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>
                 //initializedb();
                 //uploadtodb(imageData, imageName/*, date.toString("yyyy-MM-dd")*/);
                 //closedb();
+				
             }
             else {
                 image->setText("Error: Unable to load one or more images.");
@@ -390,37 +455,47 @@ void ImagesPage::uploadtodb(QByteArray imageData, QString imageName/*, QString d
 void ImagesPage::calibrateImage()
 {
 cv::setBreakOnError(true);
+int pb;
 
     for (int i = 0; i < boardHeight; i++) {
         for (int j = 0; j < boardWidth; j++) {
             objp.push_back(Point3f(j * squareSize, i * squareSize, 0));
         }
     }
+	progressBar->setValue(20);
 
     vector<string> imageFiles;
     for (const auto& entry : fs::directory_iterator("images")) {
         if (entry.path().extension() == ".jpg" || entry.path().extension() == ".png") {
             imageFiles.push_back(entry.path().string());
+            cout << "\n";
             cout << entry.path().string()<< endl;
         }
     }
+    cout << "\n";
     cout << imageFiles.size()<< endl;
 
     if (imageFiles.empty()) {
-        cerr << "Error: No images found in 'images' directory." << endl;
+        cerr << "\nError: No images found in 'images' directory." << endl;
     }
 
     fs::remove_all("chessboard_images/");
     if (!fs::exists("chessboard_images/")) {
         fs::create_directory("chessboard_images/");
     }
+    progressBar->setValue(30);
 
     Mat frame, gray;
+    progressBar->setValue(70);
+    pb = 70;
+
     for (const auto& filenam : imageFiles) {
+        progressBar->setValue(pb++);
+        cout << "\n";
         cout << filenam;
         frame = cv::imread(filenam);
         if (frame.empty()) {
-            cerr << "Warning: Could not read " << filenam << endl;
+            cerr << "\nWarning: Could not read " << filenam << endl;
             continue;
         }
 
@@ -428,6 +503,14 @@ cv::setBreakOnError(true);
         vector<Point2f> corners;
         bool found = findChessboardCorners(gray, boardSize, corners,
             CALIB_CB_ADAPTIVE_THRESH | CALIB_CB_FAST_CHECK | CALIB_CB_NORMALIZE_IMAGE);
+        
+
+        if (!found) {
+            cerr << "\nWarning: Chessboard not found in " << filenam << endl;
+			fs::remove(filenam);  // Remove the image if chessboard is not found
+            continue;  // Ignora a imagem sem chessboard
+        }
+        
 
         if (found) {
             cornerSubPix(gray, corners, Size(11, 11), Size(-1, -1),
@@ -440,35 +523,41 @@ cv::setBreakOnError(true);
 
             string outputFilename = "chessboard_images/drawn_" + fs::path(filenam).filename().string();
             imwrite(outputFilename, frame);
-
             
-            ImagesPage::uploadUndist(imageLabel, imageSelector, std::ref(images), "chessboard_images/");
             //Para visualizar fora do UI
             //Mat resizedFrame;
             //cv::resize(frame, resizedFrame, Size(frame.cols / 4, frame.rows / 4)); // Resize to half
             //imshow("Chessboard Detection", resizedFrame);
-        }
+		}
+        
     }
+
+    //Update na ImageFiles list
+   
+    ImagesPage::uploadUndist(referenceLabel, refimageSelector, std::ref(refs), "chessboard_images/");
     //destroyAllWindows();
     
     if (imagePoints.empty()) {
-        cerr << "Error: No valid images for calibration." << endl;
+        cerr << "\nError: No valid images for calibration." << endl;
     }
 
     Mat cameraMatrix, distCoeffs;
     vector<Mat> rvecs, tvecs;
-    calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
+    progressBar->setValue(90);
+    
+    cv::calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
 
     ofstream file("calibration_results.txt");
     if (file.is_open()) {
         file << "Camera Matrix:\n" << cameraMatrix << "\n";
         file << "Distortion Coefficients:\n" << distCoeffs << "\n";
         file.close();
-        //cout << "Calibration results saved to 'calibration_results.txt'." << endl;
+        cout << "\nCalibration results saved to 'calibration_results.txt'." << endl;
     }
     else {
-        cerr << "Error: Unable to save calibration data." << endl;
+        cerr << "\nError: Unable to save calibration data." << endl;
     }
+    
 
     string coeffs;
     QFile camcoeffs("calibration_results.txt");
@@ -479,38 +568,47 @@ cv::setBreakOnError(true);
         info->setPlainText(QString::fromStdString(coeffs));
     }
     else {
-        info->setPlainText("Error: Unable to open the file.");
+        info->setPlainText("\nError: Unable to open the file.");
     }
 
     // Create directory for undistorted images
     if (!fs::exists("undistorted_images")) {
         fs::create_directory("undistorted_images");
     }
+    fs::remove_all("undistorted_images/");
+    if (!fs::exists("undistorted_images/")) {
+        fs::create_directory("undistorted_images/");
+    }
+
+
+	imageFiles.clear();
+    for (const auto& entry : fs::directory_iterator("images")) {
+        if (entry.path().extension() == ".jpg" || entry.path().extension() == ".png") {
+            imageFiles.push_back(entry.path().string());
+            cout << "\n";
+            cout << entry.path().string() << endl;
+        }
+    }
 
     // Save and show undist images
-    for (const auto& filename : imageFiles) {
-        Mat original = imread(filename);
+    for (const auto& filenam : imageFiles) {
+        Mat original = imread(filenam);
         if (original.empty()) {
-            cerr << "Warning: Could not read " << filename << endl;
+            cerr << "\nWarning: Could not read " << filenam << endl;
             continue;
         }
 
         Mat undistorted;
         undistort(original, undistorted, cameraMatrix, distCoeffs);
 
-        string outputFilename = "undistorted_images/undistorted_" + fs::path(filename).filename().string();
+        string outputFilename = "undistorted_images/undistorted_" + fs::path(filenam).filename().string();
         imwrite(outputFilename, undistorted);
 
-        //Upload para references
-        ImagesPage::uploadUndist(referenceLabel, refimageSelector, std::ref(refs), "undistorted_images/");
-       //Para visualizar fora do UI
-       // cv::resize(undistorted, resizedUndistorted, Size(undistorted.cols / 4, undistorted.rows / 4));
-       // imshow("Undistorted Image", resizedUndistorted);
+        //Upload para references  
+        
     }
-
-
-    //destroyAllWindows();
-    // Chessboard dimensions (number of inner corners per chessboard row and column)
+    ImagesPage::uploadUndist(referenceLabel, refimageSelector, std::ref(refs), "undistorted_images/");
+    progressBar->setValue(0);
     
 
 }
@@ -525,7 +623,7 @@ void ImagesPage::closedb(){
 CameraPage::CameraPage(QWidget* parent)
     : QWizardPage(parent)
 {
-    setTitle("Calibracao em Camara Livre");
+    setTitle("Live Calibration");
     zoom = new QSlider;
     zoom->setOrientation(Qt::Horizontal);
     zoom->setFixedWidth(500);
@@ -542,7 +640,7 @@ CameraPage::CameraPage(QWidget* parent)
     videoWidget->setFixedWidth(500);
     combocamaras = new QComboBox;
     paracamara = new QPushButton;
-    paracamara->setText("Parar Camara");
+    paracamara->setText("Stop Camera");
     paracamara->setFixedHeight(24);
     paracamara->setFixedWidth(90);
     mediacapture = new QMediaCaptureSession();
@@ -550,9 +648,9 @@ CameraPage::CameraPage(QWidget* parent)
     qvs = new QVideoSink();
     scene = new QGraphicsScene();
     livecalbutton = new QPushButton();
-    livecalbutton->setText("Calibracao com OpenCV Live");
+    livecalbutton->setText("OpenCV Live Calibration");
     undistbutton = new QPushButton();
-    undistbutton->setText("Abrir camera com Distorcao ativada");
+    undistbutton->setText("Open camera with distortion removal effect");
 
     connect(combocamaras, &QComboBox::currentIndexChanged, this, &CameraPage::selectcamera);
     connect(paracamara, &QPushButton::clicked, this, &CameraPage::on_paracamara_clicked);
@@ -628,6 +726,7 @@ void CameraPage::on_paracamara_clicked()
         return;
     // converte o frame em imagem e passa de imagem para pixmap
     QImage img = frame.toImage();
+    img.save("imageslive/frame.jpg", "jpg", 90); // Save the frame as an image file
     QPixmap pixmap = QPixmap::fromImage(img);
     // usa uma QGraphicsScene para colocar no graphicsview
     scene->clear();
@@ -638,6 +737,7 @@ void CameraPage::on_paracamara_clicked()
 }
 float CameraPage::livecalibration() {
 
+	flaglivecam = 1;
     VideoCapture cap(0);
     if (!cap.isOpened()) {
         cerr << "Error: Unable to open the camera." << endl;
@@ -689,7 +789,7 @@ float CameraPage::livecalibration() {
 
     // Camera calibration
     vector<Mat> rvecs, tvecs;
-    calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
+    cv::calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
 
     cout << "Camera Matrix: \n" << cameraMatrix << endl;
     cout << "Distortion Coefficients: \n" << distCoeffs << endl;
@@ -705,6 +805,14 @@ float CameraPage::livecalibration() {
 }
 void CameraPage::undistcamera()
 {
+	if (flaglivecam == 0) {
+        QMessageBox::warning(
+            this,                                   // Parent widget
+            "Warning",                              // Window title
+            "Please use live calibration before opening the undistorted camera."  // Message text
+        );
+        return;
+	}
     VideoCapture cap(0);
     if (!cap.isOpened()) {
         cerr << "Error: Unable to open the camera for distortion display." << endl;
@@ -737,7 +845,6 @@ void CameraPage::undistcamera()
     destroyAllWindows();
 
 }
-
 
 ConclusionPage::ConclusionPage(QWidget* parent)
     : QWizardPage(parent)

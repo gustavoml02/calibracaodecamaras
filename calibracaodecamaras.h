@@ -14,6 +14,7 @@
 #include <QVideoWidget>
 #include <QByteArray>
 #include <QBuffer>
+#include <QProgressBar>
 #include "sqlite3.h"
 #include <opencv2/opencv.hpp>
 
@@ -129,6 +130,7 @@ private:
     QList<QPixmap> images;
     QList<QPixmap> refs;
     QPlainTextEdit* info;
+	QProgressBar* progressBar;
     sqlite3* db;
 };
 
