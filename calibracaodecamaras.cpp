@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <fstream>
 #include <locale.h>
+#include <regex>
+#include <sstream>
 
 using namespace cv;
 using namespace std;
@@ -27,6 +29,37 @@ vector<vector<Point2f>> imagePoints;
 vector<Point3f> objp;
 Mat cameraMatrix, distCoeffs;
 
+QImage MatToQImage(const cv::Mat& mat) {
+    switch (mat.type()) {
+        // 8-bit, 3-channel (color image)
+    case CV_8UC3: {
+        QImage image(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_RGB888);
+        return image.rgbSwapped();  // Convert BGR (OpenCV) to RGB (Qt)
+    }
+
+                // 8-bit, 1-channel (grayscale image)
+    case CV_8UC1: {
+        QVector<QRgb> colorTable;
+        for (int i = 0; i < 256; i++)
+            colorTable.push_back(qRgb(i, i, i));
+
+        QImage image(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_Indexed8);
+        image.setColorTable(colorTable);
+        return image;
+    }
+
+                // 8-bit, 4-channel (e.g., BGRA)
+    case CV_8UC4: {
+        QImage image(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_ARGB32);
+        return image;
+    }
+
+    default:
+        qWarning("Unsupported cv::Mat format for QImage conversion");
+        return QImage();
+    }
+}
+
 bool readCalibrationFile(const std::string& filename, Mat& cameraMatrix2, Mat& distCoeffs2) {
     ifstream file(filename);
     if (!file.is_open()) {
@@ -35,43 +68,57 @@ bool readCalibrationFile(const std::string& filename, Mat& cameraMatrix2, Mat& d
     }
 
     string line;
-    bool readingCameraMatrix = false, readingDistCoeffs = false;
-    vector<double> cameraData, distData;
+    string cameraBlock, distBlock;
+    bool readingCamera = false, readingDist = false;
 
     while (getline(file, line)) {
+        // Replace commas with dots (decimal formatting)
+        replace(line.begin(), line.end(), ',', '.');
+
         if (line.find("Camera Matrix:") != string::npos) {
-            readingCameraMatrix = true;
-            readingDistCoeffs = false;
+            readingCamera = true;
+            readingDist = false;
             continue;
         }
         else if (line.find("Distortion Coefficients:") != string::npos) {
-            readingDistCoeffs = true;
-            readingCameraMatrix = false;
+            readingCamera = false;
+            readingDist = true;
             continue;
         }
 
-        if (readingCameraMatrix || readingDistCoeffs) {
-            istringstream iss(line);
-            double val;
-            while (iss >> val) {
-                if (readingCameraMatrix)
-                    cameraData.push_back(val);
-                else if (readingDistCoeffs)
-                    distData.push_back(val);
-            }
+        if (readingCamera) {
+            cameraBlock += line;
+        }
+        else if (readingDist) {
+            distBlock += line;
         }
     }
 
-    if (cameraData.size() != 9) {
-        cerr << "Invalid camera matrix size.\n";
+    // Helper lambda to extract numbers from string
+    auto extractNumbers = [](const string& str) {
+        vector<double> numbers;
+        regex numRegex(R"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)");
+        sregex_iterator it(str.begin(), str.end(), numRegex);
+        sregex_iterator end;
+        while (it != end) {
+            numbers.push_back(stod(it->str()));
+            ++it;
+        }
+        return numbers;
+        };
+
+    vector<double> camVals = extractNumbers(cameraBlock);
+    vector<double> distVals = extractNumbers(distBlock);
+
+    if (camVals.size() != 9) {
+        cerr << "Error: Invalid camera matrix size (" << camVals.size() << " values found)." << endl;
         return false;
     }
 
-    cameraMatrix2 = Mat(3, 3, CV_64F, cameraData.data()).clone();
-    distCoeffs2 = Mat(distData).clone().reshape(1, 1); // reshape to 1 row
+    cameraMatrix2 = Mat(3, 3, CV_64F, camVals.data()).clone();
+    distCoeffs2 = Mat(distVals, true).reshape(1, 1); // 1 row
+    distCoeffs2.convertTo(distCoeffs2, CV_64F);  // Reshape to a single row
 
-	cout << "Camera Matrix:\n" << cameraMatrix2 << endl;
-	cout << "Distortion Coefficients:\n" << distCoeffs2 << endl;
     return true;
 }
 
@@ -97,12 +144,13 @@ void ClassWizard::accept()
 IntroPage::IntroPage(QWidget* parent)
     : QWizardPage(parent)
 {
-    
+	readCalibrationFile("calibration_results.txt", cameraMatrix, distCoeffs);
+
     std::locale::global(std::locale("pt_PT.UTF-8"));
 
     setTitle(u8"Wizard for camera calibration");
 
-    label = new QLabel(" This wizard is intended to help the user calibrate a camera. With this program, the user has two options to perform the calibration(Using Images or Free Camera).All data is saved in a database in the program's source folder.");
+    label = new QLabel(" This wizard is intended to help the user calibrate a camera. With this program, the user has two options to perform the calibration (Using Images or Free Camera).\n All data is saved in a database in the program's source folder.\n By default the program uses the last parameters saved on the file calibration_results.txt.");
     label->setWordWrap(true);
 
     QVBoxLayout* layout = new QVBoxLayout;
@@ -140,7 +188,6 @@ int ChoicePage::nextId() const
 CameraInfoPage::CameraInfoPage(QWidget* parent)
     : QWizardPage(parent), db(nullptr)
 {
-//	readCalibrationFile("calibration_results.txt", cameraMatrix, distCoeffs);
 
     setTitle("Camera Information");
     introtofile = new QLabel("To begin, load the file with the camera information that will be relevant for the calibration:");
@@ -541,7 +588,7 @@ int pb;
         cerr << "\nError: No valid images for calibration." << endl;
     }
 
-    Mat cameraMatrix, distCoeffs;
+    //Mat cameraMatrix, distCoeffs;
     vector<Mat> rvecs, tvecs;
     progressBar->setValue(90);
     
@@ -643,6 +690,10 @@ CameraPage::CameraPage(QWidget* parent)
     paracamara->setText("Stop Camera");
     paracamara->setFixedHeight(24);
     paracamara->setFixedWidth(90);
+	saveframe = new QPushButton;
+	saveframe->setText("Save Frame");
+	saveframe->setFixedHeight(24);
+	saveframe->setFixedWidth(90);
     mediacapture = new QMediaCaptureSession();
     currentcam = new QCamera();
     qvs = new QVideoSink();
@@ -657,6 +708,8 @@ CameraPage::CameraPage(QWidget* parent)
     connect(zoom, &QSlider::valueChanged, this, &CameraPage::on_zoom_valueChanged);
     connect(livecalbutton, &QPushButton::clicked, this, &CameraPage::livecalibration);
     connect(undistbutton, &QPushButton::clicked, this, &CameraPage::undistcamera);
+	connect(saveframe, &QPushButton::clicked, this, &CameraPage::on_saveframe_clicked);
+
     getCameras();
     QGridLayout* layout = new QGridLayout;
     layout->addWidget(videoWidget, 0, 0);
@@ -665,6 +718,7 @@ CameraPage::CameraPage(QWidget* parent)
     layout->addWidget(framedisplay, 0, 1);
     layout->addWidget(zoom, 1, 1);
     layout->addWidget(zoompx, 2, 1);
+	layout->addWidget(saveframe, 2, 1, Qt::AlignRight);
     layout->addWidget(livecalbutton, 3, 0);
     layout->addWidget(undistbutton, 3, 1);
     setLayout(layout);
@@ -711,7 +765,7 @@ void CameraPage::on_zoom_valueChanged()
     zoompx->setText("Zoom: " + QString::number(zoom->value()) + "%");
     // extrai o valor do slider para uma variavel e calcula a escala
     qreal scaleFactor = static_cast<qreal>(zoom->value()) / 100.0;
-    qDebug() << scaleFactor << "\n";
+    
     framedisplay->resetTransform();
     framedisplay->scale(scaleFactor, scaleFactor);
 }
@@ -726,7 +780,15 @@ void CameraPage::on_paracamara_clicked()
         return;
     // converte o frame em imagem e passa de imagem para pixmap
     QImage img = frame.toImage();
-    img.save("imageslive/frame.jpg", "jpg", 90); // Save the frame as an image file
+    img.save("imageslive/frame.jpg", "jpg"); // Save the frame as an image file
+
+    Mat original = imread("imageslive/frame.jpg");
+
+    Mat undistorted;
+    undistort(original, undistorted, cameraMatrix, distCoeffs);
+
+	img=MatToQImage(undistorted); // Save the undistorted frame
+
     QPixmap pixmap = QPixmap::fromImage(img);
     // usa uma QGraphicsScene para colocar no graphicsview
     scene->clear();
@@ -734,6 +796,39 @@ void CameraPage::on_paracamara_clicked()
     // muda a scene e mostra no graphicsview
     framedisplay->setScene(scene);
     framedisplay->show();
+}
+void CameraPage::on_saveframe_clicked()
+{
+    if (!framedisplay || !scene)
+        return;
+
+    // Get the zoom scale from the slider
+    qreal scaleFactor = static_cast<qreal>(zoom->value()) / 100.0;
+
+	// Guarda a parte visivel do framedisplay com o zoom aplicado
+    QSize viewSize = framedisplay->viewport()->size();
+    QSize scaledSize = viewSize * scaleFactor;
+
+	// Renderiza o que está no framedisplay para um QPixmap
+    QPixmap pixmap(scaledSize);
+    QPainter painter(&pixmap);
+    framedisplay->render(&painter);
+    painter.end();
+
+    // Save the final image
+    QString baseName = "imageslive/saved_frame.jpg";
+    int counter = 0;
+    QString filename;
+    do {
+        filename = baseName + QString::number(counter++) + ".jpg";
+    } while (QFile::exists(filename));
+
+    if (pixmap.save(filename)) {
+        QMessageBox::information(this, "Frame Saved", "Image saved successfully to:\n" + filename);
+    }
+    else {
+        QMessageBox::warning(this, "Save Failed", "Failed to save the image.");
+    }
 }
 float CameraPage::livecalibration() {
 

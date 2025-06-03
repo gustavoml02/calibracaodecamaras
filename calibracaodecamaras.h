@@ -148,6 +148,7 @@ public:
     QSlider* zoom;
     QPushButton* paracamara;
     QPushButton* gridbutton;
+	QPushButton* saveframe;
     QComboBox* combocamaras;
     
     QVideoWidget* videoWidget;
@@ -162,6 +163,7 @@ private slots:
     void selectcamera(int index);
     void on_zoom_valueChanged();
     void on_paracamara_clicked();
+	void on_saveframe_clicked();
     float livecalibration();
     void undistcamera();
 
