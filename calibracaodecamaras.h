@@ -96,6 +96,12 @@ public:
 
 private:
     QLabel* introtofile;
+	QLabel* boardwidthlbl;
+	QLabel* boardheightlbl;
+	QLabel* squaresizelbl;
+	QLineEdit* boardwidthle;
+	QLineEdit* boardheightle;
+	QLineEdit* squaresizele;
     QPlainTextEdit* filecont;
     QPushButton* uploadButton;
     sqlite3* db;
@@ -116,7 +122,8 @@ private slots:
     int initializedb();
     QByteArray readImageFile(const QString& filePath);
     void closedb();
-    void uploadtodb(QByteArray imageData, QString imageName/*, QString date*/);
+	void downloadImagesToFolder(const QString& dir);
+    void uploadtodb(QByteArray imageData, QString imageName, QString date);
     void uploadUndist(QLabel* image, QComboBox* selector, QList<QPixmap>& list, QString dir);
     //void calibratedclicked()
 
@@ -125,6 +132,7 @@ private:
     QLabel* referenceLabel;
     QPushButton* uploadButton;
     QPushButton* calibrationButton;
+	QPushButton* downloadButton;
     QComboBox* imageSelector;
     QComboBox* refimageSelector;
     QList<QPixmap> images;

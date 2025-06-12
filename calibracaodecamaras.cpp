@@ -13,21 +13,25 @@
 #include <regex>
 #include <sstream>
 
+
 using namespace cv;
 using namespace std;
 namespace fs = std::filesystem;
 
-const int boardWidth = 9;
-const int boardHeight = 6;
-const Size boardSize(boardWidth, boardHeight);
-float squareSize = 1.0; // Chessboard square size
+int boardWidth = 9;
+int boardHeight = 6;
+Size boardSize(boardWidth, boardHeight);
+float squareSize = 3.5; // Chessboard square size
 int flaglivecam = 0;
+int flagpar = 0;
 
 
 vector<vector<Point3f>> objectPoints;
 vector<vector<Point2f>> imagePoints;
 vector<Point3f> objp;
 Mat cameraMatrix, distCoeffs;
+Mat cameraMatrix2, distCoeffs2;
+Mat cameraMatrix3, distCoeffs3;
 
 QImage MatToQImage(const cv::Mat& mat) {
     switch (mat.type()) {
@@ -144,13 +148,15 @@ void ClassWizard::accept()
 IntroPage::IntroPage(QWidget* parent)
     : QWizardPage(parent)
 {
-	readCalibrationFile("calibration_results.txt", cameraMatrix, distCoeffs);
+    readCalibrationFile("calibration_results.txt", cameraMatrix, distCoeffs);
+	readCalibrationFile("calibration_resultslive.txt", cameraMatrix2, distCoeffs2);
 
     std::locale::global(std::locale("pt_PT.UTF-8"));
 
     setTitle(u8"Wizard for camera calibration");
+	setSubTitle(u8"\nWelcome to the camera calibration wizard. This wizard will guide you through the process of calibrating a camera using either images or a live camera feed.");
 
-    label = new QLabel(" This wizard is intended to help the user calibrate a camera. With this program, the user has two options to perform the calibration (Using Images or Free Camera).\n All data is saved in a database in the program's source folder.\n By default the program uses the last parameters saved on the file calibration_results.txt.");
+    label = new QLabel("\n All data is saved in a database in the program's source folder.\n By default the program uses the last parameters saved on the file calibration_results.txt.");
     label->setWordWrap(true);
 
     QVBoxLayout* layout = new QVBoxLayout;
@@ -188,20 +194,48 @@ int ChoicePage::nextId() const
 CameraInfoPage::CameraInfoPage(QWidget* parent)
     : QWizardPage(parent), db(nullptr)
 {
-
     setTitle("Camera Information");
-    introtofile = new QLabel("To begin, load the file with the camera information that will be relevant for the calibration:");
+    introtofile = new QLabel("To begin, upload the file with the camera information that will be relevant for the calibration and select the number of rows, columns and square size.\n This program will only consider these parameters valid for the Image Calibration Page, and will use the inputed parameters only once.\n If no information is inputed, the program will continue with default values and create new parameters for calibration:");
+	boardheightlbl = new QLabel("Board Height (rows):");
+	boardwidthlbl = new QLabel("Board Width (columns):");
+	squaresizelbl = new QLabel("Square Size (in cm):");
+	boardheightle = new QLineEdit("6");
+	boardheightle->setValidator(new QIntValidator(0, 100, this));
+	boardwidthle = new QLineEdit("9");
+	boardwidthle->setValidator(new QIntValidator(0, 100, this));
+	squaresizele = new QLineEdit("1.0");
+	squaresizele->setValidator(new QDoubleValidator(0.0, 100.0, 2, this));
     filecont = new QPlainTextEdit();
     uploadButton = new QPushButton("Upload file");
 
     registerField("filecontent", filecont);
 
     connect(uploadButton, &QPushButton::clicked, this, &CameraInfoPage::uploadfile);
+	connect(boardheightle, &QLineEdit::textChanged, [](const QString& text) {
+		boardHeight = text.toInt();
+		boardSize = Size(boardWidth, boardHeight);
+        cout << "Board Size: " << boardSize.width << "x" << boardSize.height << endl;
+        });
+	connect(boardwidthle, &QLineEdit::textChanged, [](const QString& text) {
+		boardWidth = text.toInt();
+		boardSize = Size(boardWidth, boardHeight);
+		cout << "Board Size: " << boardSize.width << "x" << boardSize.height << endl;
+		});
+	connect(squaresizele, &QLineEdit::textChanged, [](const QString& text) {
+		squareSize = text.toFloat();
+		cout << "Square Size: " << squareSize << " cm" << endl;
+		});
 
     QGridLayout* layout = new QGridLayout;
-    layout->addWidget(introtofile, 0, 0);
-    layout->addWidget(filecont, 1, 0);
-    layout->addWidget(uploadButton, 2, 0);
+    layout->addWidget(introtofile, 0, 0, 1, 2);
+    layout->addWidget(filecont, 1, 0, 1, 2);
+	layout->addWidget(uploadButton, 2, 0, 1, 2);
+	layout->addWidget(boardheightlbl, 3, 0);
+    layout->addWidget(boardheightle, 3, 1, Qt::AlignRight);
+	layout->addWidget(boardwidthlbl, 4, 0);
+	layout->addWidget(boardwidthle, 4, 1, Qt::AlignRight);
+	layout->addWidget(squaresizelbl, 5, 0);
+	layout->addWidget(squaresizele, 5, 1, Qt::AlignRight);
    
     setLayout(layout);
 }
@@ -210,6 +244,18 @@ void CameraInfoPage::uploadfile()
 {
     QString filePath = QFileDialog::getOpenFileName(nullptr, "Open Text File", QString(), "Text Files (*.txt)");
     QString contents;
+	string filePathStr = filePath.toStdString();
+
+	if (readCalibrationFile(filePathStr, cameraMatrix, distCoeffs) != true) {
+		filecont->setPlainText("Error: Calibration File not in the current format ensure that it reads like in this example:\nCamera Matrix:\n[3317, 651144705852, 0, 2014, 318741125316\n0, 3316, 035857955561, 1674, 495091022121\n0, 0, 1]\nDistortion Coefficients :\n[0, 2132400195360207, -1, 203487041767592, 0, 002274263018278898, -0, 008488002293880892, 2, 165148949643965]\n");
+        QMessageBox::warning(this, "Camera Info upload failed", "Please ensure that the file is in the correct format as seen in the textbox");
+		return;
+	}
+    
+    readCalibrationFile(filePathStr, cameraMatrix, distCoeffs);
+    
+    QMessageBox::information(this, "Camera Info uploaded sucessfully!", "File successfully uploaded and coeffs saved:\n" + filePath);
+
     if (!filePath.isEmpty()) {
         QFile file(filePath);
         if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -231,6 +277,7 @@ void CameraInfoPage::uploadfile()
         filecont->setPlainText("File selection canceled.");
     }
     filecont->show();
+    flagpar = 1;
     
 }
 
@@ -303,6 +350,7 @@ ImagesPage::ImagesPage(QWidget* parent)
     progressBar->setValue(0);
 
     uploadButton = new QPushButton("Upload Images");
+    downloadButton = new QPushButton("Download Images from DB");
     imageSelector = new QComboBox;
 
     refimageSelector = new QComboBox;
@@ -314,6 +362,7 @@ ImagesPage::ImagesPage(QWidget* parent)
     
 
     connect(uploadButton, &QPushButton::clicked, std::bind(&ImagesPage::uploadImage, this, imageLabel, imageSelector, std::ref(images)));
+	connect(downloadButton, &QPushButton::clicked, std::bind(&ImagesPage::downloadImagesToFolder, this, "downloaded_images/"));
     connect(imageSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), std::bind(&ImagesPage::displaySelectedImage, this, std::placeholders::_1, imageLabel, std::ref(images)));
 
     connect(refimageSelector, QOverload<int>::of(&QComboBox::currentIndexChanged), std::bind(&ImagesPage::displaySelectedImage, this, std::placeholders::_1, referenceLabel, std::ref(refs)));
@@ -330,7 +379,8 @@ ImagesPage::ImagesPage(QWidget* parent)
 	
 
     layout->addWidget(calibrationButton, 3, 0);
-    layout->addWidget(progressBar, 4, 0);
+    layout->addWidget(progressBar, 5, 0);
+    layout->addWidget(downloadButton, 4, 0);
 
 	layout->addWidget(info, 2, 1, 2, 1);
     setLayout(layout);
@@ -366,7 +416,7 @@ void ImagesPage::uploadImage(QLabel* image, QComboBox* selector, QList<QPixmap>&
                 fs::copy(filePat.toStdString(), "images/" + fileInfo.fileName().toStdString(), fs::copy_options::overwrite_existing);
 
                 initializedb();
-                uploadtodb(imageData, imageName/*, date.toString("yyyy-MM-dd")*/);
+                uploadtodb(imageData, imageName, date.toString("yyyy-MM-dd"));
                 closedb();
             }
             else {
@@ -461,25 +511,51 @@ int ImagesPage::initializedb(){
     return result;
 }
 
-void ImagesPage::uploadtodb(QByteArray imageData, QString imageName/*, QString date*/)
+void ImagesPage::downloadImagesToFolder(const QString& targetDir)
+{
+        initializedb();
+        // Create target directory if it doesn't exist
+        QDir dir(targetDir);
+        if (!dir.exists()) {
+            dir.mkpath(".");
+        }
+
+        const char* sqlSelect = "SELECT file_name, contents FROM imagesforcal;";
+        sqlite3_stmt* stmt;
+
+        int rc = sqlite3_prepare_v2(db, sqlSelect, -1, &stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            std::cerr << "Failed to prepare SELECT statement: " << sqlite3_errmsg(db) << std::endl;
+            return;
+        }
+
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            QString fileName = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            const void* blobData = sqlite3_column_blob(stmt, 1);
+            int blobSize = sqlite3_column_bytes(stmt, 1);
+
+            QByteArray imageData(static_cast<const char*>(blobData), blobSize);
+
+            QFile file(dir.filePath(fileName));
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(imageData);
+                file.close();
+            }
+            else {
+                qDebug() << "Failed to write image:" << fileName;
+            }
+        }
+
+        sqlite3_finalize(stmt);
+
+        qDebug() << "Images downloaded to:" << dir.absolutePath();
+        closedb();
+}
+
+void ImagesPage::uploadtodb(QByteArray imageData, QString imageName, QString date)
  {
 
-    //QString sqlInsert = "INSERT INTO imagesforcal (date_of_upload, file_name, contents) VALUES ('" +
-    //    date + "', '" + imageName + "', '" + imageData + "');";
-
-    //// Convert the QString to a UTF-8 encoded QByteArray
-    //QByteArray byteArray = sqlInsert.toUtf8();
-
-    //// Execute the SQL query using sqlite3_exec
-    //int rc = sqlite3_exec(db, byteArray.constData(), nullptr, nullptr, nullptr);
-
-    //if (rc != SQLITE_OK) {
-    //    std::cerr << "Failed to execute statement: " << sqlite3_errmsg(db) << std::endl;
-    //    qDebug() << "Failed to execute statement: " << sqlite3_errmsg(db);
-
-    //}
-
-    const char* sqlInsert = "INSERT INTO imagesforcal (image_name, image_data) VALUES (?, ?);";
+    const char* sqlInsert = "INSERT INTO imagesforcal (date_of_upload, file_name, contents) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
 
     int rc = sqlite3_prepare_v2(db, sqlInsert, -1, &stmt, nullptr);
@@ -488,8 +564,9 @@ void ImagesPage::uploadtodb(QByteArray imageData, QString imageName/*, QString d
         return;
     }
 
-    sqlite3_bind_text(stmt, 1, imageName.toUtf8().constData(), -1, SQLITE_STATIC);
-    sqlite3_bind_blob(stmt, 2, imageData.constData(), imageData.size(), SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 1, date.toUtf8().constData(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, imageName.toUtf8().constData(), -1, SQLITE_STATIC);
+    sqlite3_bind_blob(stmt, 3, imageData.constData(), imageData.size(), SQLITE_STATIC);
 
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -586,14 +663,23 @@ int pb;
     
     if (imagePoints.empty()) {
         cerr << "\nError: No valid images for calibration." << endl;
+        QMessageBox::warning(this, "Camera Info upload failed", "Error: No valid images for calibration.\n\n Please be certain that you selecte the right amount of columns and rows, and that you uploaded valid images");
+		progressBar->setValue(0);
+        return;
     }
 
     //Mat cameraMatrix, distCoeffs;
     vector<Mat> rvecs, tvecs;
     progressBar->setValue(90);
     
+    //if (flagpar == 1) {
     cv::calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
 
+	//}
+	//else {
+	//	cv::calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
+	//}
+    
     ofstream file("calibration_results.txt");
     if (file.is_open()) {
         file << "Camera Matrix:\n" << cameraMatrix << "\n";
@@ -603,6 +689,7 @@ int pb;
     }
     else {
         cerr << "\nError: Unable to save calibration data." << endl;
+        return;
     }
     
 
@@ -656,7 +743,7 @@ int pb;
     }
     ImagesPage::uploadUndist(referenceLabel, refimageSelector, std::ref(refs), "undistorted_images/");
     progressBar->setValue(0);
-    
+    flagpar = 0;
 
 }
 
@@ -780,9 +867,9 @@ void CameraPage::on_paracamara_clicked()
         return;
     // converte o frame em imagem e passa de imagem para pixmap
     QImage img = frame.toImage();
-    img.save("imageslive/frame.jpg", "jpg"); // Save the frame as an image file
+    img.save("imageslive/frame.png", "png"); // Save the frame as an image file
 
-    Mat original = imread("imageslive/frame.jpg");
+    Mat original = imread("imageslive/frame.png");
 
     Mat undistorted;
     undistort(original, undistorted, cameraMatrix, distCoeffs);
@@ -884,33 +971,39 @@ float CameraPage::livecalibration() {
 
     // Camera calibration
     vector<Mat> rvecs, tvecs;
-    cv::calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix, distCoeffs, rvecs, tvecs);
 
-    cout << "Camera Matrix: \n" << cameraMatrix << endl;
-    cout << "Distortion Coefficients: \n" << distCoeffs << endl;
+    cv::calibrateCamera(objectPoints, imagePoints, gray.size(), cameraMatrix2, distCoeffs2, rvecs, tvecs);
+
+    cout << "Camera Matrix: \n" << cameraMatrix2 << endl;
+    cout << "Distortion Coefficients: \n" << distCoeffs2 << endl;
 
     // Save calibration data
-    ofstream file("calibration_results.txt");
+    ofstream file("calibration_resultslive.txt");
     if (file.is_open()) {
-        file << "Camera Matrix:\n" << cameraMatrix << "\n";
-        file << "Distortion Coefficients:\n" << distCoeffs << "\n";
+        file << "Camera Matrix:\n" << cameraMatrix2 << "\n";
+        file << "Distortion Coefficients:\n" << distCoeffs2 << "\n";
         file.close();
     }
   
 }
 void CameraPage::undistcamera()
 {
-	if (flaglivecam == 0) {
+	/*if (flaglivecam == 0) {
         QMessageBox::warning(
             this,                                   // Parent widget
             "Warning",                              // Window title
             "Please use live calibration before opening the undistorted camera."  // Message text
         );
         return;
-	}
+	}*/
     VideoCapture cap(0);
     if (!cap.isOpened()) {
-        cerr << "Error: Unable to open the camera for distortion display." << endl;
+        QMessageBox::warning(
+            this,                                   // Parent widget
+            "Warning",                              // Window title
+            "Error: Unable to open the camera for distortion display."  // Message text
+        );
+		return;
     }
 
     while (true) {
@@ -924,10 +1017,10 @@ void CameraPage::undistcamera()
         // Apply distortion effect
         Mat distortedFrame;
         Mat map1, map2;
-        initUndistortRectifyMap(cameraMatrix, distCoeffs, Mat(), cameraMatrix, frame.size(), CV_32FC1, map1, map2);
+        initUndistortRectifyMap(cameraMatrix2, distCoeffs2, Mat(), cameraMatrix2, frame.size(), CV_32FC1, map1, map2);
         remap(frame, distortedFrame, map1, map2, INTER_LINEAR, BORDER_CONSTANT);
 
-        imshow("Distorted Camera View", distortedFrame);
+        imshow("Undistorted Camera View", distortedFrame);
 
         char key = (char)waitKey(30);
         if (key == 27) { // Press 'ESC' to exit
